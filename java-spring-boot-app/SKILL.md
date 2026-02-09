@@ -540,6 +540,11 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  
+  # Virtual threads (Java 21+)
+  threads:
+    virtual:
+      enabled: true
 
 server:
   port: ${PORT:8080}
@@ -548,6 +553,92 @@ logging:
   level:
     com.company: DEBUG
     org.springframework.web: INFO
+```
+
+## Virtual Threads (Java 21+)
+
+Virtual threads dramatically improve throughput for I/O-bound applications by allowing millions of concurrent threads with minimal overhead.
+
+### Enable in Spring Boot 3.2+
+
+```yaml
+# application.yml
+spring:
+  threads:
+    virtual:
+      enabled: true  # All request handling uses virtual threads
+```
+
+### Benefits
+
+- **High concurrency**: Handle thousands of concurrent requests without thread pool exhaustion
+- **Simpler code**: Write blocking code that scales like async code
+- **No code changes**: Existing synchronous code automatically benefits
+
+### When to Use
+
+```java
+// ✅ Virtual threads shine for I/O-bound operations
+@Service
+public class ExternalApiService {
+    
+    public Data fetchFromMultipleSources(List<String> urls) {
+        // Each call blocks, but virtual threads make this efficient
+        return urls.stream()
+            .map(this::fetchFromUrl)  // Blocking HTTP calls
+            .toList();
+    }
+    
+    // Virtual threads handle blocking I/O efficiently
+    private Data fetchFromUrl(String url) {
+        return restTemplate.getForObject(url, Data.class);  // Blocking is OK!
+    }
+}
+```
+
+### When NOT to Use
+
+```java
+// ❌ Avoid for CPU-bound operations
+// Virtual threads don't help with pure computation
+public BigInteger computeFactorial(int n) {
+    // CPU-intensive - use platform threads or parallel streams instead
+    return IntStream.rangeClosed(1, n)
+        .parallel()  // Uses ForkJoinPool (platform threads)
+        .mapToObj(BigInteger::valueOf)
+        .reduce(BigInteger.ONE, BigInteger::multiply);
+}
+```
+
+### Structured Concurrency (Preview in Java 21)
+
+```java
+// For parallel operations with proper error handling
+try (var scope = new StructuredTaskScope.ShutdownOnFailure()) {
+    Future<User> userFuture = scope.fork(() -> userService.getUser(id));
+    Future<List<Order>> ordersFuture = scope.fork(() -> orderService.getOrders(id));
+    
+    scope.join();           // Wait for all tasks
+    scope.throwIfFailed();  // Propagate exceptions
+    
+    return new UserWithOrders(userFuture.resultNow(), ordersFuture.resultNow());
+}
+```
+
+### Configuration for High Throughput
+
+```yaml
+# For very high concurrency scenarios
+spring:
+  threads:
+    virtual:
+      enabled: true
+
+# Increase connection pool to match virtual thread capacity
+  datasource:
+    hikari:
+      maximum-pool-size: 50  # Virtual threads can handle more connections
+      minimum-idle: 10
 ```
 
 ## Testing with Testcontainers
@@ -909,3 +1000,4 @@ String query = "SELECT u.id, u.name, u.email " +
 9. **Errors**: `ResponseStatusException` for HTTP errors
 10. **Testing**: Testcontainers for real database tests
 11. **Migrations**: Flyway for schema versioning
+12. **Virtual threads**: Enable for I/O-bound apps (Java 21+, Spring Boot 3.2+)
