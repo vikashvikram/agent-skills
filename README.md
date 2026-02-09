@@ -1,6 +1,6 @@
 # Agent Skills
 
-A collection of AI agent skills for building modern web applications with TypeScript.
+A collection of AI agent skills for building modern web applications.
 
 ## Available Skills
 
@@ -8,6 +8,7 @@ A collection of AI agent skills for building modern web applications with TypeSc
 |-------|-------------|
 | [react-typescript-app](./react-typescript-app) | Build React applications with TypeScript, Material-UI, and modern best practices |
 | [nodejs-typescript-app](./nodejs-typescript-app) | Build Node.js backend applications with TypeScript, Express.js, and layered architecture |
+| [java-spring-boot-app](./java-spring-boot-app) | Build Java Spring Boot applications with JPA, validation, and layered architecture |
 
 ## Installation
 
@@ -55,6 +56,19 @@ These skills work with:
 - File upload handling with Multer
 - Input validation patterns
 - Testing patterns with Jest and Supertest
+
+### Java Spring Boot App
+
+- Layered architecture (controller/, service/, repository/, domain/, dto/)
+- REST controller patterns with proper HTTP status codes
+- Service layer with transactions and business logic
+- JPA entities with relationships and auditing
+- Java Records for DTOs with Bean Validation
+- Custom validation annotations
+- Spring Data JPA repositories
+- Flyway database migrations
+- Testcontainers for integration testing
+- Structured logging patterns
 
 ## Usage
 
