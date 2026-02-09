@@ -518,6 +518,192 @@ describe('GET /api/users', () => {
 }
 ```
 
+## Code Quality & Best Practices
+
+### Optional Chaining
+
+```typescript
+// ✅ Good - concise null checks
+if (!request?.body?.data) {
+  return res.status(400).json({ error: 'Missing data' });
+}
+const email = user?.profile?.email ?? 'unknown';
+
+// ❌ Avoid - verbose
+if (!request || !request.body || !request.body.data) {
+  return res.status(400).json({ error: 'Missing data' });
+}
+```
+
+### Nullish Coalescing
+
+```typescript
+// ✅ Good - only falls back on null/undefined
+const port = parseInt(process.env.PORT ?? '3000', 10);
+const limit = options.limit ?? 100;
+
+// ❌ Avoid - || treats 0 as falsy
+const limit = options.limit || 100;  // Bug: limit of 0 becomes 100
+```
+
+### Object Lookups Over Switch/Ternaries
+
+```typescript
+// ✅ Good - readable, extensible map
+const statusCodes: Record<string, number> = {
+  created: 201,
+  updated: 200,
+  deleted: 204,
+  not_found: 404,
+};
+res.status(statusCodes[action] ?? 500);
+
+// For handlers
+const handlers: Record<string, (req: Request, res: Response) => void> = {
+  GET: handleGet,
+  POST: handlePost,
+  DELETE: handleDelete,
+};
+handlers[req.method]?.(req, res);
+
+// ❌ Avoid - nested ternaries
+const code = action === 'created' ? 201
+  : action === 'updated' ? 200
+  : action === 'deleted' ? 204 : 500;
+```
+
+### Async/Await Over Callbacks
+
+```typescript
+// ✅ Good - clean, readable async code
+async function getUser(id: string): Promise<User | null> {
+  try {
+    const user = await db.query('SELECT * FROM users WHERE id = ?', [id]);
+    return user[0] || null;
+  } catch (error) {
+    logger.error('Failed to get user', { id, error });
+    throw new AppError('Database error', 500);
+  }
+}
+
+// ❌ Avoid - callback hell
+function getUser(id: string, callback: (err: Error | null, user: User | null) => void) {
+  db.query('SELECT * FROM users WHERE id = ?', [id], (err, results) => {
+    if (err) {
+      callback(err, null);
+    } else {
+      callback(null, results[0] || null);
+    }
+  });
+}
+```
+
+### Destructuring
+
+```typescript
+// ✅ Good - clean parameter extraction
+router.post('/', async (req: Request, res: Response) => {
+  const { name, email, role } = req.body;
+  const { userId } = req.params;
+  const { page = 1, limit = 10 } = req.query;
+  // ...
+});
+
+// ❌ Avoid - repetitive access
+router.post('/', async (req: Request, res: Response) => {
+  const name = req.body.name;
+  const email = req.body.email;
+  const role = req.body.role;
+  // ...
+});
+```
+
+### Early Returns
+
+```typescript
+// ✅ Good - guard clauses
+async function updateUser(id: string, data: UpdateUserInput): Promise<User> {
+  const user = await db.findById(id);
+  if (!user) {
+    throw new AppError('User not found', 404);
+  }
+  
+  if (!user.isActive) {
+    throw new AppError('Cannot update inactive user', 400);
+  }
+  
+  return db.update(id, data);
+}
+
+// ❌ Avoid - deep nesting
+async function updateUser(id: string, data: UpdateUserInput): Promise<User> {
+  const user = await db.findById(id);
+  if (user) {
+    if (user.isActive) {
+      return db.update(id, data);
+    } else {
+      throw new AppError('Cannot update inactive user', 400);
+    }
+  } else {
+    throw new AppError('User not found', 404);
+  }
+}
+```
+
+### Template Literals
+
+```typescript
+// ✅ Good - readable string building
+const query = `SELECT * FROM ${table} WHERE id = $1`;
+const message = `User ${user.name} (${user.email}) created successfully`;
+const url = `${API_URL}/users/${userId}/profile`;
+
+// ❌ Avoid - string concatenation
+const query = 'SELECT * FROM ' + table + ' WHERE id = $1';
+const message = 'User ' + user.name + ' (' + user.email + ') created successfully';
+```
+
+### Const Over Let
+
+```typescript
+// ✅ Good - immutable by default
+const users = await getUsers();
+const filtered = users.filter(u => u.isActive);
+const { name, email } = user;
+
+// ❌ Avoid - unnecessary mutation
+let users = await getUsers();
+let filtered = users.filter(u => u.isActive);  // Should be const
+```
+
+### Explicit Function Return Types
+
+```typescript
+// ✅ Good - clear contract
+async function getUsers(): Promise<User[]> { }
+function calculateTotal(items: Item[]): number { }
+function formatDate(date: Date): string { }
+
+// ❌ Avoid - implicit return types in exported functions
+export async function getUsers() { }  // Return type unclear
+```
+
+### Error Context in Logs
+
+```typescript
+// ✅ Good - structured logging with context
+logger.error('Failed to process order', {
+  orderId: order.id,
+  userId: user.id,
+  error: err.message,
+  stack: err.stack,
+});
+
+// ❌ Avoid - unstructured error messages
+logger.error('Error: ' + err.message);
+console.log('Failed to process order');
+```
+
 ## Best Practices Summary
 
 1. **Layered architecture**: Routes → Services → Database

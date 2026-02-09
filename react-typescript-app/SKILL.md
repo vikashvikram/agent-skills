@@ -199,23 +199,37 @@ export function useAsync<T>(asyncFn: (...args: unknown[]) => Promise<T>): UseAsy
 }
 ```
 
-## ESLint Best Practices
+## Code Quality & Best Practices
 
 ### Optional Chaining
 
 ```typescript
 // ✅ Good - concise and safe
 if (!user?.profile?.settings) return null;
+const city = user?.address?.city ?? 'Unknown';
 
-// ❌ Avoid - verbose
+// ❌ Avoid - verbose and error-prone
 if (!user || !user.profile || !user.profile.settings) return null;
+const city = user && user.address && user.address.city ? user.address.city : 'Unknown';
+```
+
+### Nullish Coalescing
+
+```typescript
+// ✅ Good - only falls back on null/undefined
+const count = value ?? 0;        // Preserves 0 and '' as valid values
+const name = user.name ?? 'Anonymous';
+
+// ❌ Avoid - || treats 0, '', false as falsy
+const count = value || 0;        // Bug: replaces 0 with 0 (works), but intent unclear
 ```
 
 ### replaceAll() Over replace() with Global Flag
 
 ```typescript
-// ✅ Good - semantic and clear
+// ✅ Good - semantic and clear intent
 const clean = input.replaceAll(/[\\/]/g, '_');
+const normalized = text.replaceAll(/\s+/g, ' ');
 
 // ❌ Avoid - less clear intent
 const clean = input.replace(/[\\/]/g, '_');
@@ -224,7 +238,7 @@ const clean = input.replace(/[\\/]/g, '_');
 ### Object Lookups Over Nested Ternaries
 
 ```typescript
-// ✅ Good - readable and extensible
+// ✅ Good - readable, extensible, and maintainable
 const statusColors: Record<string, string> = {
   success: 'green',
   warning: 'orange',
@@ -233,11 +247,91 @@ const statusColors: Record<string, string> = {
 };
 const color = statusColors[status] || 'gray';
 
+// Also good for functions
+const handlers: Record<string, () => void> = {
+  save: handleSave,
+  delete: handleDelete,
+  cancel: handleCancel,
+};
+handlers[action]?.();
+
 // ❌ Avoid - hard to read and extend
 const color = status === 'success' ? 'green'
   : status === 'warning' ? 'orange'
   : status === 'error' ? 'red'
   : status === 'info' ? 'blue' : 'gray';
+```
+
+### Avoid Unused Variables
+
+```typescript
+// ✅ Good - prefix with underscore for intentionally unused
+const [_, setCount] = useState(0);
+array.map((_item, index) => index);
+
+// ✅ Good - destructure only what you need
+const { name, email } = user;  // Don't destructure id if not used
+
+// ❌ Avoid - declared but never used
+const unused = getValue();  // ESLint: 'unused' is declared but never used
+```
+
+### Strict Equality
+
+```typescript
+// ✅ Good - strict equality
+if (value === null) { }
+if (status !== 'active') { }
+
+// ❌ Avoid - loose equality (type coercion)
+if (value == null) { }  // Also matches undefined
+if (status != 'active') { }
+```
+
+### Array Methods Over Loops
+
+```typescript
+// ✅ Good - functional, declarative
+const activeUsers = users.filter(u => u.isActive);
+const names = users.map(u => u.name);
+const hasAdmin = users.some(u => u.role === 'admin');
+const allVerified = users.every(u => u.verified);
+
+// ❌ Avoid - imperative loops for simple transformations
+const activeUsers = [];
+for (let i = 0; i < users.length; i++) {
+  if (users[i].isActive) activeUsers.push(users[i]);
+}
+```
+
+### Early Returns
+
+```typescript
+// ✅ Good - guard clauses reduce nesting
+function processUser(user: User | null): string {
+  if (!user) return 'No user';
+  if (!user.isActive) return 'Inactive';
+  if (!user.hasPermission) return 'No permission';
+  
+  return `Welcome, ${user.name}`;
+}
+
+// ❌ Avoid - deep nesting
+function processUser(user: User | null): string {
+  if (user) {
+    if (user.isActive) {
+      if (user.hasPermission) {
+        return `Welcome, ${user.name}`;
+      } else {
+        return 'No permission';
+      }
+    } else {
+      return 'Inactive';
+    }
+  } else {
+    return 'No user';
+  }
+}
 ```
 
 ### Accessibility
@@ -255,6 +349,36 @@ const color = status === 'success' ? 'green'
 <IconButton aria-label="Delete item">
   <DeleteIcon />
 </IconButton>
+
+// Form elements need labels
+<TextField
+  label="Email address"  // MUI: visible label
+  // or
+  inputProps={{ 'aria-label': 'Email address' }}  // Screen reader only
+/>
+```
+
+### Consistent Imports
+
+```typescript
+// ✅ Good - group and order imports
+// 1. React/external libraries
+import React, { useState, useEffect } from 'react';
+import { Box, Button } from '@mui/material';
+
+// 2. Internal absolute imports
+import { useAuth } from '@/hooks/useAuth';
+import { User } from '@/types';
+
+// 3. Relative imports
+import { UserCard } from './UserCard';
+import styles from './styles.module.css';
+
+// ❌ Avoid - mixed, unorganized imports
+import { UserCard } from './UserCard';
+import React from 'react';
+import { useAuth } from '@/hooks/useAuth';
+import { Box } from '@mui/material';
 ```
 
 ## Component Patterns

@@ -627,6 +627,275 @@ class PersonControllerTest {
 }
 ```
 
+## Code Quality & Best Practices
+
+### Use Optional Correctly
+
+```java
+// ✅ Good - use Optional for return types that may be absent
+public Optional<User> findByEmail(String email) { }
+
+// ✅ Good - chain Optional operations
+return userRepository.findById(id)
+    .map(this::toResponse)
+    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "User not found"));
+
+// ✅ Good - ifPresent for side effects
+userRepository.findByEmail(email).ifPresent(existing -> {
+    throw new ResponseStatusException(HttpStatus.CONFLICT, "Email exists");
+});
+
+// ❌ Avoid - Optional.get() without check
+User user = userRepository.findById(id).get();  // Throws if empty
+
+// ❌ Avoid - Optional for parameters or fields
+public void process(Optional<String> name) { }  // Use @Nullable or overloading
+```
+
+### Prefer Records for DTOs
+
+```java
+// ✅ Good - immutable, concise, auto-generates equals/hashCode/toString
+public record UserResponse(
+    UUID id,
+    String name,
+    String email,
+    LocalDateTime createdAt
+) {}
+
+// ❌ Avoid - verbose POJOs for simple DTOs
+public class UserResponse {
+    private UUID id;
+    private String name;
+    // ... getters, setters, equals, hashCode, toString
+}
+```
+
+### Use Switch Expressions (Java 14+)
+
+```java
+// ✅ Good - switch expression with arrow syntax
+String message = switch (status) {
+    case ACTIVE -> "User is active";
+    case INACTIVE -> "User is inactive";
+    case PENDING -> "Awaiting verification";
+    case SUSPENDED -> "Account suspended";
+};
+
+// ✅ Good - exhaustive switch (compiler checks all cases)
+int priority = switch (severity) {
+    case LOW -> 1;
+    case MEDIUM -> 2;
+    case HIGH -> 3;
+    case CRITICAL -> 4;
+};
+
+// ❌ Avoid - old switch with fall-through risks
+String message;
+switch (status) {
+    case ACTIVE:
+        message = "User is active";
+        break;
+    case INACTIVE:
+        message = "User is inactive";
+        break;
+    // Missing cases silently ignored
+}
+```
+
+### Prefer Stream API for Collections
+
+```java
+// ✅ Good - declarative, readable
+List<String> activeEmails = users.stream()
+    .filter(User::isActive)
+    .map(User::getEmail)
+    .toList();
+
+boolean hasAdmin = users.stream()
+    .anyMatch(u -> u.getRole() == Role.ADMIN);
+
+Map<Role, List<User>> byRole = users.stream()
+    .collect(Collectors.groupingBy(User::getRole));
+
+// ❌ Avoid - imperative loops for simple transformations
+List<String> activeEmails = new ArrayList<>();
+for (User user : users) {
+    if (user.isActive()) {
+        activeEmails.add(user.getEmail());
+    }
+}
+```
+
+### Avoid Null - Use Empty Collections
+
+```java
+// ✅ Good - return empty collection, never null
+public List<User> findByDepartment(UUID deptId) {
+    return repository.findByDepartmentId(deptId);  // Returns empty list if none
+}
+
+// ✅ Good - initialize collections
+@ManyToMany
+private Set<Skill> skills = new HashSet<>();
+
+// ❌ Avoid - returning null
+public List<User> findByDepartment(UUID deptId) {
+    var users = repository.findByDepartmentId(deptId);
+    return users.isEmpty() ? null : users;  // Caller must null-check
+}
+```
+
+### Use @Slf4j with Structured Logging
+
+```java
+// ✅ Good - structured logging with placeholders
+@Slf4j
+@Service
+public class UserService {
+    public void createUser(CreateUserRequest request) {
+        // ... create user
+        log.info("user.created id={} email={}", user.getId(), user.getEmail());
+    }
+    
+    public void deleteUser(UUID id) {
+        log.warn("user.deleted id={} deletedBy={}", id, getCurrentUserId());
+    }
+}
+
+// ❌ Avoid - string concatenation in logs
+log.info("Created user: " + user.getId() + " with email: " + user.getEmail());
+```
+
+### Constructor Injection Over Field Injection
+
+```java
+// ✅ Good - constructor injection (immutable, testable)
+@Service
+public class UserService {
+    private final UserRepository userRepository;
+    private final EmailService emailService;
+    
+    public UserService(UserRepository userRepository, EmailService emailService) {
+        this.userRepository = userRepository;
+        this.emailService = emailService;
+    }
+}
+
+// ❌ Avoid - field injection (harder to test, mutable)
+@Service
+public class UserService {
+    @Autowired
+    private UserRepository userRepository;
+    
+    @Autowired
+    private EmailService emailService;
+}
+```
+
+### Use Meaningful Validation Messages
+
+```java
+// ✅ Good - clear validation messages
+public record CreateUserRequest(
+    @NotBlank(message = "Name is required")
+    String name,
+    
+    @NotBlank(message = "Email is required")
+    @Email(message = "Invalid email format")
+    String email,
+    
+    @NotNull(message = "Start date is required")
+    @FutureOrPresent(message = "Start date cannot be in the past")
+    LocalDate startDate
+) {}
+
+// ❌ Avoid - default messages
+public record CreateUserRequest(
+    @NotBlank String name,  // Message: "must not be blank" (unclear)
+    @Email String email
+) {}
+```
+
+### Handle Exceptions Properly
+
+```java
+// ✅ Good - specific exception handling
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ErrorResponse> handleResponseStatus(ResponseStatusException ex) {
+        return ResponseEntity
+            .status(ex.getStatusCode())
+            .body(new ErrorResponse(ex.getReason()));
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException ex) {
+        var errors = ex.getBindingResult().getFieldErrors().stream()
+            .collect(Collectors.toMap(
+                FieldError::getField,
+                FieldError::getDefaultMessage
+            ));
+        return ResponseEntity.badRequest()
+            .body(new ErrorResponse("Validation failed", errors));
+    }
+}
+
+record ErrorResponse(String message, Map<String, String> fieldErrors) {
+    ErrorResponse(String message) { this(message, null); }
+}
+```
+
+### Use Constants for Magic Values
+
+```java
+// ✅ Good - named constants
+public class Limits {
+    public static final int MAX_PAGE_SIZE = 100;
+    public static final int DEFAULT_PAGE_SIZE = 20;
+    public static final int MAX_NAME_LENGTH = 255;
+}
+
+@GetMapping
+public List<UserResponse> list(
+    @RequestParam(defaultValue = "1") int page,
+    @RequestParam(defaultValue = "20") @Max(100) int size
+) { }
+
+// ❌ Avoid - magic numbers
+if (size > 100) {  // What's special about 100?
+    size = 100;
+}
+```
+
+### Text Blocks for Multi-line Strings (Java 15+)
+
+```java
+// ✅ Good - readable multi-line strings
+String query = """
+    SELECT u.id, u.name, u.email
+    FROM users u
+    JOIN departments d ON u.department_id = d.id
+    WHERE d.name = :deptName
+    ORDER BY u.name
+    """;
+
+String json = """
+    {
+        "name": "%s",
+        "email": "%s"
+    }
+    """.formatted(name, email);
+
+// ❌ Avoid - string concatenation
+String query = "SELECT u.id, u.name, u.email " +
+    "FROM users u " +
+    "JOIN departments d ON u.department_id = d.id " +
+    "WHERE d.name = :deptName";
+```
+
 ## Best Practices Summary
 
 1. **Layered architecture**: Controller → Service → Repository → Entity
