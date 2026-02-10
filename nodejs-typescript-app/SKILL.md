@@ -518,6 +518,170 @@ describe('GET /api/users', () => {
 }
 ```
 
+## Project Files
+
+### .gitignore
+
+```gitignore
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+server.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Testing
+coverage/
+
+# Uploads (if stored locally)
+uploads/
+!uploads/.gitkeep
+
+# Database files (if using SQLite)
+*.db
+*.sqlite
+```
+
+### .dockerignore
+
+```dockerignore
+# Dependencies (reinstalled in container)
+node_modules/
+
+# Build artifacts
+dist/
+
+# Development files
+.git/
+.gitignore
+.env*
+*.md
+!README.md
+
+# IDE and OS
+.idea/
+.vscode/
+.DS_Store
+
+# Testing
+coverage/
+**/*.test.ts
+**/test/
+
+# Logs
+*.log
+
+# Local uploads
+uploads/
+```
+
+### Dockerfile
+
+```dockerfile
+# Build stage
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Install dependencies
+COPY package*.json ./
+RUN npm ci
+
+# Copy source and build
+COPY . .
+RUN npm run build
+
+# Production stage
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Create non-root user for security
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+# Copy package files and install production dependencies only
+COPY package*.json ./
+RUN npm ci --only=production && npm cache clean --force
+
+# Copy built application
+COPY --from=builder /app/dist ./dist
+
+# Create uploads directory with correct permissions
+RUN mkdir -p uploads && chown -R nodejs:nodejs /app
+
+# Switch to non-root user
+USER nodejs
+
+# Expose port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
+
+CMD ["node", "dist/index.js"]
+```
+
+### docker-compose.yml (for development)
+
+```yaml
+version: '3.8'
+
+services:
+  api:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=myapp
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=myapp
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+```
+
 ## Code Quality & Best Practices
 
 ### Optional Chaining

@@ -103,6 +103,210 @@ Essential dependencies for a Spring Boot project:
 </dependencies>
 ```
 
+## Project Files
+
+### .gitignore
+
+```gitignore
+# Build output
+target/
+
+# IDE files
+.idea/
+*.iml
+.project
+.classpath
+.settings/
+.vscode/
+*.swp
+*.swo
+
+# Environment and secrets
+.env
+*.env
+application-local.yml
+
+# Logs
+*.log
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Package files
+*.jar
+*.war
+*.ear
+
+# Test output
+test-output/
+```
+
+### .dockerignore
+
+```dockerignore
+# Build output (rebuilt in container)
+target/
+
+# IDE files
+.idea/
+*.iml
+.project
+.classpath
+.settings/
+.vscode/
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+*.md
+!README.md
+
+# Environment files
+.env*
+application-local.yml
+
+# Logs
+*.log
+logs/
+
+# Test files
+src/test/
+```
+
+### Dockerfile (Multi-stage build)
+
+```dockerfile
+# Build stage
+FROM maven:3.9-eclipse-temurin-21-alpine AS builder
+
+WORKDIR /app
+
+# Copy pom.xml and download dependencies (cached layer)
+COPY pom.xml .
+RUN mvn dependency:go-offline -B
+
+# Copy source and build
+COPY src ./src
+RUN mvn package -DskipTests -B
+
+# Production stage
+FROM eclipse-temurin:21-jre-alpine
+
+WORKDIR /app
+
+# Create non-root user for security
+RUN addgroup -g 1001 -S spring && \
+    adduser -S spring -u 1001 -G spring
+
+# Copy JAR from builder
+COPY --from=builder /app/target/*.jar app.jar
+
+# Set ownership
+RUN chown -R spring:spring /app
+
+# Switch to non-root user
+USER spring
+
+# Expose port
+EXPOSE 8080
+
+# JVM tuning for containers
+ENV JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/actuator/health || exit 1
+
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+```
+
+### docker-compose.yml
+
+```yaml
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=prod
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/myapp
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=postgres
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=myapp
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5432:5432"  # Expose for local development
+
+volumes:
+  postgres_data:
+```
+
+### Dockerfile.layered (Optimized for Spring Boot)
+
+For better caching with Spring Boot's layered JARs:
+
+```dockerfile
+# Build stage
+FROM maven:3.9-eclipse-temurin-21-alpine AS builder
+
+WORKDIR /app
+COPY pom.xml .
+RUN mvn dependency:go-offline -B
+
+COPY src ./src
+RUN mvn package -DskipTests -B && \
+    java -Djarmode=layertools -jar target/*.jar extract
+
+# Production stage
+FROM eclipse-temurin:21-jre-alpine
+
+WORKDIR /app
+
+RUN addgroup -g 1001 -S spring && \
+    adduser -S spring -u 1001 -G spring
+
+# Copy layers in order of change frequency (least → most)
+COPY --from=builder /app/dependencies/ ./
+COPY --from=builder /app/spring-boot-loader/ ./
+COPY --from=builder /app/snapshot-dependencies/ ./
+COPY --from=builder /app/application/ ./
+
+RUN chown -R spring:spring /app
+USER spring
+
+EXPOSE 8080
+
+ENV JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0"
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/actuator/health || exit 1
+
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS org.springframework.boot.loader.launch.JarLauncher"]
+```
+
 ## Controller Layer
 
 Controllers handle HTTP concerns only - delegate business logic to services.

@@ -522,3 +522,136 @@ describe('useUsers', () => {
 ```
 
 Use `npm install --legacy-peer-deps` if encountering peer dependency conflicts.
+
+## Project Files
+
+### .gitignore
+
+```gitignore
+# Dependencies
+node_modules/
+
+# Build output
+build/
+dist/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Testing
+coverage/
+
+# Misc
+*.tgz
+.eslintcache
+```
+
+### .dockerignore
+
+```dockerignore
+# Dependencies (reinstalled in container)
+node_modules/
+
+# Build artifacts
+build/
+dist/
+
+# Development files
+.git/
+.gitignore
+.env*
+*.md
+!README.md
+
+# IDE and OS
+.idea/
+.vscode/
+.DS_Store
+
+# Testing
+coverage/
+**/*.test.ts
+**/*.test.tsx
+**/__tests__/
+
+# Logs
+*.log
+```
+
+### Dockerfile
+
+```dockerfile
+# Build stage
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Install dependencies
+COPY package*.json ./
+RUN npm ci
+
+# Copy source and build
+COPY . .
+RUN npm run build
+
+# Production stage
+FROM nginx:alpine
+
+# Copy custom nginx config
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Copy built assets
+COPY --from=builder /app/build /usr/share/nginx/html
+
+# Expose port
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+### nginx.conf (for SPA routing)
+
+```nginx
+server {
+    listen 80;
+    server_name localhost;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Gzip compression
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
+
+    # SPA routing - serve index.html for all routes
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Cache static assets
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # Don't cache index.html
+    location = /index.html {
+        add_header Cache-Control "no-cache, no-store, must-revalidate";
+    }
+}
+```
