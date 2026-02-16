@@ -1,43 +1,40 @@
 ---
 name: nodejs-typescript-app
-description: Build and structure Node.js backend applications with TypeScript, Express.js, and layered architecture. Use when creating APIs, routes, services, middleware, database helpers, or when the user asks about Node.js project structure, backend architecture, or Express patterns.
+description: Build and structure Node.js backend applications with TypeScript, Express.js, and modern best practices. Use when creating APIs, routes, services, or when the user asks about Node.js project structure, backend architecture, or Express patterns.
 ---
 
 # Node.js TypeScript Application
-
-Patterns and best practices for building production-ready Node.js backends with TypeScript and Express.js.
 
 ## Project Structure
 
 ```
 backend/
-├── routes/                 # Express route handlers (HTTP layer)
+├── routes/                 # Express route handlers
 │   ├── index.ts            # Route aggregator
-│   ├── auth.ts
-│   ├── users.ts
-│   └── products.ts
+│   ├── upload.ts
+│   ├── transform.ts
+│   ├── datasets.ts
+│   └── workflows.ts
 ├── services/               # Business logic layer
-│   ├── authService.ts
-│   ├── userService.ts
-│   └── productService.ts
-├── middleware/             # Express middleware
-│   ├── errorHandler.ts
-│   ├── auth.ts
-│   └── validation.ts
+│   ├── dataService.ts
+│   ├── transformService.ts
+│   └── profileService.ts
 ├── utils/                  # Shared utilities
-│   ├── logger.ts
-│   ├── db.ts
-│   └── helpers.ts
+│   ├── dbHelpers.ts        # Database operations
+│   ├── queryBuilder.ts     # SQL query construction
+│   └── logger.ts           # Logging utility
 ├── types/                  # TypeScript definitions
 │   └── index.ts
-├── config/                 # Configuration
-│   └── index.ts
+├── middleware/             # Express middleware
+│   └── errorHandler.ts
 ├── index.ts                # Application entry point
 ├── package.json
 └── tsconfig.json
 ```
 
 ## TypeScript Configuration
+
+Essential `tsconfig.json` settings:
 
 ```json
 {
@@ -53,6 +50,7 @@ backend/
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "declaration": true,
+    "declarationMap": true,
     "sourceMap": true
   },
   "include": ["./**/*.ts"],
@@ -60,7 +58,7 @@ backend/
 }
 ```
 
-## Package Scripts
+## Package.json Scripts
 
 ```json
 {
@@ -74,181 +72,136 @@ backend/
 }
 ```
 
-## Application Entry Point
+## Express Application Setup
+
+**index.ts** - Application entry point:
 
 ```typescript
-// index.ts
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
-import helmet from 'helmet';
+import path from 'path';
 import routes from './routes';
 import { errorHandler } from './middleware/errorHandler';
 import { logger } from './utils/logger';
-import config from './config';
 
 const app = express();
+const PORT = process.env.PORT || 3001;
 
-// Security middleware
-app.use(helmet());
+// Middleware
 app.use(cors());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Body parsing
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true }));
+// Static files (for serving frontend build)
+app.use(express.static(path.join(__dirname, '../public')));
 
 // API routes
 app.use('/api', routes);
 
-// Health check
-app.get('/health', (_, res) => res.json({ status: 'ok' }));
-
-// Error handler (must be last)
+// Error handling middleware (must be last)
 app.use(errorHandler);
 
-app.listen(config.port, () => {
-  logger.info(`Server running on port ${config.port}`);
+// Start server
+app.listen(PORT, () => {
+  logger.info(`Server running on port ${PORT}`);
 });
 
 export default app;
 ```
 
-## Route Layer
+## Route Handlers Pattern
 
-Routes handle HTTP concerns only - delegate business logic to services.
-
-### Route Aggregator
+**routes/index.ts** - Route aggregator:
 
 ```typescript
-// routes/index.ts
 import { Router } from 'express';
-import authRoutes from './auth';
-import userRoutes from './users';
-import productRoutes from './products';
+import uploadRoutes from './upload';
+import transformRoutes from './transform';
+import datasetRoutes from './datasets';
+import workflowRoutes from './workflows';
 
 const router = Router();
 
-router.use('/auth', authRoutes);
-router.use('/users', userRoutes);
-router.use('/products', productRoutes);
+router.use('/upload', uploadRoutes);
+router.use('/transform', transformRoutes);
+router.use('/datasets', datasetRoutes);
+router.use('/workflows', workflowRoutes);
 
 export default router;
 ```
 
-### Route Handler Pattern
+**routes/datasets.ts** - Feature route file:
 
 ```typescript
-// routes/users.ts
 import { Router, Request, Response, NextFunction } from 'express';
-import { userService } from '../services/userService';
-import { asyncHandler } from '../middleware/asyncHandler';
-import { validateBody } from '../middleware/validation';
-import { createUserSchema } from '../schemas/user';
+import { datasetService } from '../services/datasetService';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
-// GET /api/users
+// Wrap async handlers to catch errors
+const asyncHandler = (fn: Function) => (req: Request, res: Response, next: NextFunction) => {
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
+
 router.get('/', asyncHandler(async (req: Request, res: Response) => {
-  const users = await userService.getAll();
-  res.json(users);
+  const datasets = await datasetService.getAll();
+  res.json(datasets);
 }));
 
-// GET /api/users/:id
-router.get('/:id', asyncHandler(async (req: Request, res: Response) => {
-  const user = await userService.getById(req.params.id);
-  if (!user) {
-    return res.status(404).json({ error: 'User not found' });
+router.post('/save', asyncHandler(async (req: Request, res: Response) => {
+  const { datasetName, transformations } = req.body;
+  
+  if (!datasetName?.trim()) {
+    return res.status(400).json({ error: 'Dataset name is required' });
   }
-  res.json(user);
+  
+  await datasetService.save(datasetName, transformations);
+  res.json({ message: 'Dataset saved successfully' });
 }));
 
-// POST /api/users
-router.post('/',
-  validateBody(createUserSchema),
-  asyncHandler(async (req: Request, res: Response) => {
-    const user = await userService.create(req.body);
-    res.status(201).json(user);
-  })
-);
-
-// DELETE /api/users/:id
-router.delete('/:id', asyncHandler(async (req: Request, res: Response) => {
-  await userService.delete(req.params.id);
-  res.json({ message: 'User deleted successfully' });
+router.delete('/:fileName', asyncHandler(async (req: Request, res: Response) => {
+  const { fileName } = req.params;
+  await datasetService.delete(fileName);
+  res.json({ message: 'Dataset deleted successfully' });
 }));
 
 export default router;
 ```
 
-## Service Layer
+## Service Layer Pattern
 
-Services contain business logic, separate from HTTP concerns.
+Services contain business logic, separate from HTTP concerns:
 
 ```typescript
-// services/userService.ts
-import { db } from '../utils/db';
-import { AppError } from '../middleware/errorHandler';
-import type { User, CreateUserInput } from '../types';
+// services/datasetService.ts
+import { db } from '../utils/dbHelpers';
+import { queryBuilder } from '../utils/queryBuilder';
+import type { Dataset, Transformation } from '../types';
 
-export const userService = {
-  async getAll(): Promise<User[]> {
-    return db.query<User>('SELECT * FROM users ORDER BY created_at DESC');
+export const datasetService = {
+  async getAll(): Promise<Dataset[]> {
+    // Business logic here
+    return db.query('SELECT * FROM datasets ORDER BY created_at DESC');
   },
 
-  async getById(id: string): Promise<User | null> {
-    const [user] = await db.query<User>('SELECT * FROM users WHERE id = ?', [id]);
-    return user || null;
+  async save(name: string, transformations: Transformation[]): Promise<void> {
+    const query = queryBuilder.buildTransformQuery(transformations);
+    await db.execute(query);
+    // Save metadata
   },
 
-  async create(input: CreateUserInput): Promise<User> {
-    // Business validation
-    const existing = await db.query<User>('SELECT id FROM users WHERE email = ?', [input.email]);
-    if (existing.length > 0) {
-      throw new AppError('Email already exists', 409);
-    }
-
-    const id = crypto.randomUUID();
-    await db.execute(
-      'INSERT INTO users (id, name, email, created_at) VALUES (?, ?, ?, ?)',
-      [id, input.name, input.email, new Date().toISOString()]
-    );
-
-    return this.getById(id) as Promise<User>;
-  },
-
-  async delete(id: string): Promise<void> {
-    const user = await this.getById(id);
-    if (!user) {
-      throw new AppError('User not found', 404);
-    }
-    await db.execute('DELETE FROM users WHERE id = ?', [id]);
+  async delete(fileName: string): Promise<void> {
+    await db.execute('DELETE FROM datasets WHERE file_name = ?', [fileName]);
   },
 };
 ```
 
-## Middleware
+## Error Handling Middleware
 
-### Async Handler
-
-Wraps async route handlers to catch errors automatically.
+**middleware/errorHandler.ts**:
 
 ```typescript
-// middleware/asyncHandler.ts
-import { Request, Response, NextFunction } from 'express';
-
-type AsyncFunction = (req: Request, res: Response, next: NextFunction) => Promise<unknown>;
-
-export const asyncHandler = (fn: AsyncFunction) =>
-  (req: Request, res: Response, next: NextFunction) => {
-    Promise.resolve(fn(req, res, next)).catch(next);
-  };
-```
-
-### Error Handler
-
-Centralized error handling with custom error class.
-
-```typescript
-// middleware/errorHandler.ts
 import { Request, Response, NextFunction } from 'express';
 import { logger } from '../utils/logger';
 
@@ -268,14 +221,14 @@ export const errorHandler = (
   err: Error | AppError,
   req: Request,
   res: Response,
-  _next: NextFunction
+  next: NextFunction
 ): void => {
   const statusCode = err instanceof AppError ? err.statusCode : 500;
   const message = err.message || 'Internal server error';
 
-  logger.error(`${req.method} ${req.path} - ${statusCode} - ${message}`, {
+  logger.error(`${req.method} ${req.path} - ${message}`, {
     stack: err.stack,
-    body: req.body,
+    statusCode,
   });
 
   res.status(statusCode).json({
@@ -285,45 +238,24 @@ export const errorHandler = (
 };
 ```
 
-### Input Validation
+## Logger Utility
+
+**utils/logger.ts**:
 
 ```typescript
-// middleware/validation.ts
-import { Request, Response, NextFunction } from 'express';
-import { ZodSchema } from 'zod';
-
-export const validateBody = (schema: ZodSchema) =>
-  (req: Request, res: Response, next: NextFunction) => {
-    const result = schema.safeParse(req.body);
-    if (!result.success) {
-      return res.status(400).json({
-        error: 'Validation failed',
-        details: result.error.flatten().fieldErrors,
-      });
-    }
-    req.body = result.data;
-    next();
-  };
-```
-
-## Utilities
-
-### Logger
-
-```typescript
-// utils/logger.ts
 import winston from 'winston';
-import config from '../config';
+
+const logFormat = winston.format.combine(
+  winston.format.timestamp(),
+  winston.format.errors({ stack: true }),
+  winston.format.printf(({ level, message, timestamp, stack }) => {
+    return `${timestamp} [${level.toUpperCase()}]: ${message}${stack ? `\n${stack}` : ''}`;
+  })
+);
 
 export const logger = winston.createLogger({
-  level: config.logLevel,
-  format: winston.format.combine(
-    winston.format.timestamp(),
-    winston.format.errors({ stack: true }),
-    winston.format.printf(({ level, message, timestamp, stack }) =>
-      `${timestamp} [${level.toUpperCase()}]: ${message}${stack ? `\n${stack}` : ''}`
-    )
-  ),
+  level: process.env.LOG_LEVEL || 'info',
+  format: logFormat,
   transports: [
     new winston.transports.Console(),
     new winston.transports.File({ filename: 'server.log' }),
@@ -331,549 +263,233 @@ export const logger = winston.createLogger({
 });
 ```
 
-### Database Helper
-
-```typescript
-// utils/db.ts
-import { logger } from './logger';
-
-// Generic database interface - implement for your DB (PostgreSQL, MySQL, SQLite, etc.)
-export const db = {
-  async query<T>(sql: string, params?: unknown[]): Promise<T[]> {
-    logger.debug(`Query: ${sql}`, { params });
-    // Implement with your database driver
-    return [];
-  },
-
-  async execute(sql: string, params?: unknown[]): Promise<void> {
-    logger.debug(`Execute: ${sql}`, { params });
-    // Implement with your database driver
-  },
-};
-```
-
-### Configuration
-
-```typescript
-// config/index.ts
-import dotenv from 'dotenv';
-dotenv.config();
-
-const config = {
-  port: parseInt(process.env.PORT || '3001', 10),
-  nodeEnv: process.env.NODE_ENV || 'development',
-  logLevel: process.env.LOG_LEVEL || 'info',
-  
-  db: {
-    host: process.env.DB_HOST || 'localhost',
-    port: parseInt(process.env.DB_PORT || '5432', 10),
-    name: process.env.DB_NAME || 'app',
-    user: process.env.DB_USER || 'postgres',
-    password: process.env.DB_PASSWORD || '',
-  },
-
-  jwt: {
-    secret: process.env.JWT_SECRET || 'change-me-in-production',
-    expiresIn: process.env.JWT_EXPIRES_IN || '7d',
-  },
-};
-
-export default config;
-```
-
 ## Type Definitions
 
+**types/index.ts**:
+
 ```typescript
-// types/index.ts
-export interface User {
+export interface Dataset {
+  name: string;
+  fileName: string;
+  createdAt: string;
+  rowCount: number;
+  columnCount: number;
+}
+
+export interface Transformation {
   id: string;
   name: string;
-  email: string;
-  createdAt: string;
+  params: Record<string, unknown>;
 }
 
-export interface CreateUserInput {
-  name: string;
-  email: string;
+export interface TransformResult {
+  success: boolean;
+  rowCount: number;
+  columns: string[];
 }
 
-// Express extensions
-declare global {
-  namespace Express {
-    interface Request {
-      user?: User;
-    }
-  }
+// Express request extensions
+export interface TypedRequest<T = unknown> extends Express.Request {
+  body: T;
 }
-
-export {};
 ```
 
-## File Uploads
+## Database Helpers Pattern
+
+**utils/dbHelpers.ts** (example with DuckDB):
 
 ```typescript
-// routes/upload.ts
-import { Router } from 'express';
+import * as duckdb from 'duckdb';
+import { logger } from './logger';
+
+let db: duckdb.Database | null = null;
+let connection: duckdb.Connection | null = null;
+
+export const initDatabase = (): void => {
+  db = new duckdb.Database(':memory:');
+  connection = db.connect();
+  logger.info('Database initialized');
+};
+
+export const query = async <T>(sql: string, params?: unknown[]): Promise<T[]> => {
+  if (!connection) throw new Error('Database not initialized');
+  
+  return new Promise((resolve, reject) => {
+    connection!.all(sql, params || [], (err, result) => {
+      if (err) reject(err);
+      else resolve(result as T[]);
+    });
+  });
+};
+
+export const execute = async (sql: string, params?: unknown[]): Promise<void> => {
+  if (!connection) throw new Error('Database not initialized');
+  
+  return new Promise((resolve, reject) => {
+    connection!.run(sql, params || [], (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+};
+
+export const closeDatabase = (): void => {
+  if (connection) connection.close();
+  if (db) db.close();
+  logger.info('Database closed');
+};
+```
+
+## Async Handler Pattern
+
+Wrap all async route handlers to catch errors:
+
+```typescript
+// Option 1: Utility function
+const asyncHandler = (fn: Function) => 
+  (req: Request, res: Response, next: NextFunction) =>
+    Promise.resolve(fn(req, res, next)).catch(next);
+
+// Option 2: express-async-handler package
+import asyncHandler from 'express-async-handler';
+
+router.get('/', asyncHandler(async (req, res) => {
+  const data = await service.getData();
+  res.json(data);
+}));
+```
+
+## Input Validation
+
+```typescript
+router.post('/save', asyncHandler(async (req: Request, res: Response) => {
+  const { name, data } = req.body;
+
+  // Validate required fields
+  if (!name?.trim()) {
+    return res.status(400).json({ error: 'Name is required' });
+  }
+
+  if (!Array.isArray(data)) {
+    return res.status(400).json({ error: 'Data must be an array' });
+  }
+
+  // Proceed with valid input
+  await service.save(name.trim(), data);
+  res.json({ message: 'Saved successfully' });
+}));
+```
+
+## File Upload Handling
+
+```typescript
 import multer from 'multer';
 import path from 'path';
-import { asyncHandler } from '../middleware/asyncHandler';
 
 const storage = multer.diskStorage({
-  destination: './uploads',
+  destination: (req, file, cb) => {
+    cb(null, process.env.UPLOAD_DIR || './uploads');
+  },
   filename: (req, file, cb) => {
-    const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1E9)}${path.extname(file.originalname)}`;
-    cb(null, uniqueName);
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
+    cb(null, `${uniqueSuffix}${path.extname(file.originalname)}`);
   },
 });
 
 const upload = multer({
   storage,
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB
   fileFilter: (req, file, cb) => {
-    const allowed = ['.csv', '.xlsx', '.json', '.pdf'];
+    const allowedTypes = ['.csv', '.xlsx', '.parquet'];
     const ext = path.extname(file.originalname).toLowerCase();
-    cb(null, allowed.includes(ext));
+    if (allowedTypes.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`File type ${ext} not allowed`));
+    }
   },
 });
-
-const router = Router();
 
 router.post('/', upload.single('file'), asyncHandler(async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No file uploaded' });
   }
-  res.json({
-    message: 'File uploaded',
-    filename: req.file.filename,
-    size: req.file.size,
-  });
+  // Process file...
 }));
-
-export default router;
 ```
 
-## Testing
+## Environment Variables
 
 ```typescript
-// tests/routes/users.test.ts
-import request from 'supertest';
-import app from '../../index';
-import { userService } from '../../services/userService';
-import type { User } from '../../types';
+// Load at app start
+import dotenv from 'dotenv';
+dotenv.config();
 
-jest.mock('../../services/userService');
-const mockedService = userService as jest.Mocked<typeof userService>;
+// Access with defaults
+const config = {
+  port: parseInt(process.env.PORT || '3001', 10),
+  nodeEnv: process.env.NODE_ENV || 'development',
+  logLevel: process.env.LOG_LEVEL || 'info',
+  uploadDir: process.env.UPLOAD_DIR || './uploads',
+  dataDir: process.env.DATA_DIR || './data',
+};
 
-describe('GET /api/users', () => {
-  beforeEach(() => jest.clearAllMocks());
-
-  it('returns all users', async () => {
-    const mockUsers: User[] = [
-      { id: '1', name: 'John', email: 'john@test.com', createdAt: '2024-01-01' }
-    ];
-    mockedService.getAll.mockResolvedValue(mockUsers);
-
-    const res = await request(app).get('/api/users');
-
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual(mockUsers);
-    expect(mockedService.getAll).toHaveBeenCalledTimes(1);
-  });
-
-  it('handles service errors', async () => {
-    mockedService.getAll.mockRejectedValue(new Error('Database error'));
-
-    const res = await request(app).get('/api/users');
-
-    expect(res.status).toBe(500);
-    expect(res.body).toHaveProperty('error');
-  });
-});
+export default config;
 ```
 
 ## Dependencies
+
+Essential packages:
 
 ```json
 {
   "dependencies": {
     "express": "^4.x",
     "cors": "^2.x",
-    "helmet": "^7.x",
     "dotenv": "^16.x",
-    "winston": "^3.x",
-    "zod": "^3.x"
+    "multer": "^1.x",
+    "winston": "^3.x"
   },
   "devDependencies": {
     "typescript": "^5.x",
     "@types/node": "^20.x",
     "@types/express": "^4.x",
     "@types/cors": "^2.x",
+    "@types/multer": "^1.x",
     "nodemon": "^3.x",
     "ts-node": "^10.x",
     "jest": "^29.x",
-    "ts-jest": "^29.x",
-    "supertest": "^6.x",
-    "@types/supertest": "^6.x"
+    "@types/jest": "^29.x",
+    "ts-jest": "^29.x"
   }
 }
 ```
 
-## Project Files
+## Testing Pattern
 
-### .gitignore
-
-```gitignore
-# Dependencies
-node_modules/
-
-# Build output
-dist/
-
-# Environment files
-.env
-.env.local
-.env.*.local
-
-# Logs
-*.log
-server.log
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# OS files
-.DS_Store
-Thumbs.db
-
-# Testing
-coverage/
-
-# Uploads (if stored locally)
-uploads/
-!uploads/.gitkeep
-
-# Database files (if using SQLite)
-*.db
-*.sqlite
-```
-
-### .dockerignore
-
-```dockerignore
-# Dependencies (reinstalled in container)
-node_modules/
-
-# Build artifacts
-dist/
-
-# Development files
-.git/
-.gitignore
-.env*
-*.md
-!README.md
-
-# IDE and OS
-.idea/
-.vscode/
-.DS_Store
-
-# Testing
-coverage/
-**/*.test.ts
-**/test/
-
-# Logs
-*.log
-
-# Local uploads
-uploads/
-```
-
-### Dockerfile
-
-```dockerfile
-# Build stage
-FROM node:20-alpine AS builder
-
-WORKDIR /app
-
-# Install dependencies
-COPY package*.json ./
-RUN npm ci
-
-# Copy source and build
-COPY . .
-RUN npm run build
-
-# Production stage
-FROM node:20-alpine
-
-WORKDIR /app
-
-# Create non-root user for security
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
-
-# Copy package files and install production dependencies only
-COPY package*.json ./
-RUN npm ci --only=production && npm cache clean --force
-
-# Copy built application
-COPY --from=builder /app/dist ./dist
-
-# Create uploads directory with correct permissions
-RUN mkdir -p uploads && chown -R nodejs:nodejs /app
-
-# Switch to non-root user
-USER nodejs
-
-# Expose port
-EXPOSE 3000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/health || exit 1
-
-CMD ["node", "dist/index.js"]
-```
-
-### docker-compose.yml (for development)
-
-```yaml
-version: '3.8'
-
-services:
-  api:
-    build: .
-    ports:
-      - "3000:3000"
-    environment:
-      - NODE_ENV=production
-      - PORT=3000
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_NAME=myapp
-      - DB_USER=postgres
-      - DB_PASSWORD=postgres
-    depends_on:
-      db:
-        condition: service_healthy
-    restart: unless-stopped
-
-  db:
-    image: postgres:15-alpine
-    environment:
-      - POSTGRES_DB=myapp
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-volumes:
-  postgres_data:
-```
-
-## Code Quality & Best Practices
-
-### Optional Chaining
+**tests/routes/datasets.test.ts**:
 
 ```typescript
-// ✅ Good - concise null checks
-if (!request?.body?.data) {
-  return res.status(400).json({ error: 'Missing data' });
-}
-const email = user?.profile?.email ?? 'unknown';
+import request from 'supertest';
+import app from '../../index';
+import { datasetService } from '../../services/datasetService';
 
-// ❌ Avoid - verbose
-if (!request || !request.body || !request.body.data) {
-  return res.status(400).json({ error: 'Missing data' });
-}
-```
+jest.mock('../../services/datasetService');
+const mockedService = datasetService as jest.Mocked<typeof datasetService>;
 
-### Nullish Coalescing
-
-```typescript
-// ✅ Good - only falls back on null/undefined
-const port = parseInt(process.env.PORT ?? '3000', 10);
-const limit = options.limit ?? 100;
-
-// ❌ Avoid - || treats 0 as falsy
-const limit = options.limit || 100;  // Bug: limit of 0 becomes 100
-```
-
-### Object Lookups Over Switch/Ternaries
-
-```typescript
-// ✅ Good - readable, extensible map
-const statusCodes: Record<string, number> = {
-  created: 201,
-  updated: 200,
-  deleted: 204,
-  not_found: 404,
-};
-res.status(statusCodes[action] ?? 500);
-
-// For handlers
-const handlers: Record<string, (req: Request, res: Response) => void> = {
-  GET: handleGet,
-  POST: handlePost,
-  DELETE: handleDelete,
-};
-handlers[req.method]?.(req, res);
-
-// ❌ Avoid - nested ternaries
-const code = action === 'created' ? 201
-  : action === 'updated' ? 200
-  : action === 'deleted' ? 204 : 500;
-```
-
-### Async/Await Over Callbacks
-
-```typescript
-// ✅ Good - clean, readable async code
-async function getUser(id: string): Promise<User | null> {
-  try {
-    const user = await db.query('SELECT * FROM users WHERE id = ?', [id]);
-    return user[0] || null;
-  } catch (error) {
-    logger.error('Failed to get user', { id, error });
-    throw new AppError('Database error', 500);
-  }
-}
-
-// ❌ Avoid - callback hell
-function getUser(id: string, callback: (err: Error | null, user: User | null) => void) {
-  db.query('SELECT * FROM users WHERE id = ?', [id], (err, results) => {
-    if (err) {
-      callback(err, null);
-    } else {
-      callback(null, results[0] || null);
-    }
+describe('GET /api/datasets', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
   });
-}
-```
 
-### Destructuring
+  it('should return all datasets', async () => {
+    const mockDatasets = [{ name: 'test', fileName: 'test.csv' }];
+    mockedService.getAll.mockResolvedValue(mockDatasets);
 
-```typescript
-// ✅ Good - clean parameter extraction
-router.post('/', async (req: Request, res: Response) => {
-  const { name, email, role } = req.body;
-  const { userId } = req.params;
-  const { page = 1, limit = 10 } = req.query;
-  // ...
-});
+    const response = await request(app).get('/api/datasets');
 
-// ❌ Avoid - repetitive access
-router.post('/', async (req: Request, res: Response) => {
-  const name = req.body.name;
-  const email = req.body.email;
-  const role = req.body.role;
-  // ...
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(mockDatasets);
+  });
 });
 ```
-
-### Early Returns
-
-```typescript
-// ✅ Good - guard clauses
-async function updateUser(id: string, data: UpdateUserInput): Promise<User> {
-  const user = await db.findById(id);
-  if (!user) {
-    throw new AppError('User not found', 404);
-  }
-  
-  if (!user.isActive) {
-    throw new AppError('Cannot update inactive user', 400);
-  }
-  
-  return db.update(id, data);
-}
-
-// ❌ Avoid - deep nesting
-async function updateUser(id: string, data: UpdateUserInput): Promise<User> {
-  const user = await db.findById(id);
-  if (user) {
-    if (user.isActive) {
-      return db.update(id, data);
-    } else {
-      throw new AppError('Cannot update inactive user', 400);
-    }
-  } else {
-    throw new AppError('User not found', 404);
-  }
-}
-```
-
-### Template Literals
-
-```typescript
-// ✅ Good - readable string building
-const query = `SELECT * FROM ${table} WHERE id = $1`;
-const message = `User ${user.name} (${user.email}) created successfully`;
-const url = `${API_URL}/users/${userId}/profile`;
-
-// ❌ Avoid - string concatenation
-const query = 'SELECT * FROM ' + table + ' WHERE id = $1';
-const message = 'User ' + user.name + ' (' + user.email + ') created successfully';
-```
-
-### Const Over Let
-
-```typescript
-// ✅ Good - immutable by default
-const users = await getUsers();
-const filtered = users.filter(u => u.isActive);
-const { name, email } = user;
-
-// ❌ Avoid - unnecessary mutation
-let users = await getUsers();
-let filtered = users.filter(u => u.isActive);  // Should be const
-```
-
-### Explicit Function Return Types
-
-```typescript
-// ✅ Good - clear contract
-async function getUsers(): Promise<User[]> { }
-function calculateTotal(items: Item[]): number { }
-function formatDate(date: Date): string { }
-
-// ❌ Avoid - implicit return types in exported functions
-export async function getUsers() { }  // Return type unclear
-```
-
-### Error Context in Logs
-
-```typescript
-// ✅ Good - structured logging with context
-logger.error('Failed to process order', {
-  orderId: order.id,
-  userId: user.id,
-  error: err.message,
-  stack: err.stack,
-});
-
-// ❌ Avoid - unstructured error messages
-logger.error('Error: ' + err.message);
-console.log('Failed to process order');
-```
-
-## Best Practices Summary
-
-1. **Layered architecture**: Routes → Services → Database
-2. **Async handlers**: Always wrap async routes to catch errors
-3. **Centralized errors**: Use AppError class with status codes
-4. **Input validation**: Validate at route level before service
-5. **Type everything**: Define types in `types/index.ts`
-6. **Configuration**: Use environment variables with defaults
-7. **Logging**: Log errors with context (method, path, body)
